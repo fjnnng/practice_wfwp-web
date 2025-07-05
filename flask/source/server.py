@@ -1,11 +1,14 @@
 from source.model import database, User
-from flask import Flask, request
+from flask import Flask, jsonify, request
+from flask_jwt_extended import create_access_token, JWTManager
 
 
 def create_server():
     server = Flask(__name__)
     server.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
     database.init_app(server)
+    server.config["JWT_SECRET_KEY"] = "wfwp-web"
+    jwt = JWTManager(server)
 
     @server.route("/api/authentication/register", methods=["POST"])
     def register():
@@ -18,6 +21,20 @@ def create_server():
             )
             database.session.commit()
             return "", 201
+        return "", 400
+
+    @server.route("/api/authentication/login", methods=["POST"])
+    def login():
+        userpass = request.get_json()
+        if "user" in userpass and "pass" in userpass:
+            if (
+                user := database.session.get(User, userpass["user"])
+            ) and user.password == userpass["pass"]:
+                return (
+                    jsonify(access_token=create_access_token(identity=user.username)),
+                    200,
+                )
+            return "", 401
         return "", 400
 
     return server
