@@ -84,3 +84,24 @@ def test_login_bad_request(client):
     assert check_status_code(response, 400)
     response = login(client, {})
     assert check_status_code(response, 400)
+
+
+def protected(client, token):
+    return client.get("/api/protected", headers={"Authorization": f"Bearer " + token})
+
+
+def test_protected(client):
+    response = client.get("/api/protected")
+    assert not check_status_code(response, 200)
+    response = protected(client, "testtoken")
+    assert not check_status_code(response, 200)
+    userpass = {"user": "testuser", "pass": "testpass"}
+    registration(client, userpass)
+    token = loads(login(client, userpass).data)["access_token"]
+    response = protected(client, token)
+    assert (
+        check_status_code(response, 200)
+        and hasattr(response, "data")
+        and "logged_in_as" in (data := loads(response.data))
+        and data["logged_in_as"] == userpass["user"]
+    )

@@ -1,6 +1,11 @@
 from source.model import database, User
 from flask import Flask, jsonify, request
-from flask_jwt_extended import create_access_token, JWTManager
+from flask_jwt_extended import (
+    create_access_token,
+    get_jwt_identity,
+    jwt_required,
+    JWTManager,
+)
 
 
 def create_server():
@@ -36,6 +41,11 @@ def create_server():
                 )
             return "", 401
         return "", 400
+
+    @server.route("/api/protected", methods=["GET"])
+    @jwt_required()  # return codes other than 200 automatically
+    def protected():
+        return jsonify(logged_in_as=get_jwt_identity()), 200
 
     return server
 
