@@ -16,6 +16,7 @@ class Picture(database.Model):
     size = database.Column(database.Integer)
     width = database.Column(database.Integer)
     height = database.Column(database.Integer)
+    ratio = database.Column(database.Float)
 
 
 class Category(database.Model):

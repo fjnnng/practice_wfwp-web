@@ -1,4 +1,11 @@
-from source.model import Category, database, Picture, PictureCategory, User, UserPicture
+from source.model import (
+    Category,
+    database,
+    Picture,
+    PictureCategory,
+    User,
+    UserPicture,
+)
 from flask import Flask, jsonify, request
 from flask_jwt_extended import (
     create_access_token,
@@ -6,6 +13,9 @@ from flask_jwt_extended import (
     jwt_required,
     JWTManager,
 )
+from json import load
+from os.path import isfile, abspath
+from random import randrange
 
 categories = [
     "Arthropods",
@@ -27,13 +37,7 @@ categories = [
 ]
 
 
-def initialize_database():
-    for category in categories:
-        database.session.add(Category(cat=category))
-    database.session.commit()
-
-
-def add_picture(data):  # does not commit
+def add_picture(data):  # needs context and does not commit
     picture = Picture(
         sha1=data["sha1"],
         title=data["title"],
@@ -42,27 +46,39 @@ def add_picture(data):  # does not commit
         size=data["size"],
         width=data["width"],
         height=data["height"],
+        ratio=data["width"] / data["height"],
     )
     database.session.add(picture)
     database.session.flush()
     sha1 = data["sha1"]
-    cat = data["cat"]
+    cat = int(data["cat"], 16)
     for category in categories:
         if cat & 1:
             picturecategory = PictureCategory(picture=sha1, category=category)
             database.session.add(picturecategory)
         cat >>= 1
+        if not cat:
+            break
+    return picture
 
 
-def create_server():
+def create_server(filepath="source/data/database.json"):
     server = Flask(__name__)
     server.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
     database.init_app(server)
+    with server.app_context():
+        database.drop_all()
+        database.create_all()
+        for category in categories:
+            database.session.add(Category(cat=category))
+        database.session.commit()
+        if isfile(filepath):
+            with open(filepath, encoding="utf-8") as file:
+                for data in load(file)["datas"]:
+                    add_picture(data)
+            database.session.commit()
     server.config["JWT_SECRET_KEY"] = "wfwp-web"
     jwt = JWTManager(server)
-    with server.app_context():
-        database.create_all()
-        initialize_database()
 
     @server.route("/api/authentication/register", methods=["POST"])
     def register():
@@ -98,9 +114,9 @@ def create_server():
         picturelike = request.get_json()
         if (
             type(picturelike) == dict
-            and "picture" in picturelike
+            and (picture := picturelike.get("picture"))
             and "like" in picturelike
-            and database.session.get(Picture, picture := picturelike["picture"])
+            and database.session.get(Picture, picture)
         ):
             if userpicture := database.session.get(
                 UserPicture, {"user": user, "picture": picture}
@@ -112,6 +128,77 @@ def create_server():
             database.session.commit()
             return "", 200
         return "", 400
+
+    @server.route("/api/random", methods=["GET"])
+    @jwt_required(optional=True)
+    def random():
+        args = request.args
+        width = args.get("width", type=int, default=0)
+        height = args.get("height", type=int, default=0)
+        cat = args.get("cat", type=int, default=0)
+        query = database.session.query(Picture)
+        if width and height:
+            ratio = width / height
+            minratio = 3 / 4 * ratio
+            maxratio = 4 / 3 * ratio
+            query = query.filter(Picture.width >= width)
+            query = query.filter(Picture.height >= height)
+            query = query.filter(Picture.ratio >= minratio)
+            query = query.filter(Picture.ratio <= maxratio)
+        else:
+            ratio = 0
+        if cat:
+            excluded_categories = []
+            for category in categories:
+                if cat & 1:
+                    excluded_categories.append(category)
+                cat >>= 1
+                if not cat:
+                    break
+            query = query.filter(
+                Picture.sha1.notin_(
+                    database.session.query(PictureCategory.picture).filter(
+                        PictureCategory.category.in_(excluded_categories)
+                    )
+                )
+            )
+        if user := get_jwt_identity():
+            query = query.filter(
+                Picture.sha1.notin_(
+                    database.session.query(UserPicture.picture).filter(
+                        UserPicture.user == user
+                    )
+                )
+            )
+        if count := query.count():
+            picture = query.offset(randrange(count)).limit(1).first()
+        else:
+            return "", 404
+        if ratio:
+            if picture.ratio > ratio:
+                scaling = round(height * picture.ratio)
+            else:
+                scaling = width
+        else:
+            scaling = 0
+        query = database.session.query(UserPicture).filter(
+            UserPicture.picture == picture.sha1
+        )
+        return (
+            jsonify(
+                {
+                    "file": picture.title + "." + picture.ext,
+                    "pad": picture.pad,
+                    "scaling": scaling,
+                    "sha1": picture.sha1,
+                    "size": picture.size,
+                    "like": query.filter(UserPicture.like == True).count(),
+                    "dislike": query.filter(UserPicture.like == False).count(),
+                    "count": count,
+                }
+            ),
+            200,
+        )
 
     return server
 
