@@ -69,11 +69,11 @@ def test_login(client):
     )
 
 
-def like(client, token, picture, like):
+def like(client, token, sha1, like_status):
     return client.post(
         "/api/like",
         headers={"Authorization": f"Bearer " + token},
-        json={"picture": picture, "like": like},
+        json={"sha1": sha1, "like_status": like_status},
     )
 
 
@@ -96,13 +96,13 @@ def test_like(client):
     response = client.post(
         "/api/like",
         headers={"Authorization": f"Bearer " + token},
-        json={"picture": ""},
+        json={"sha1": ""},
     )
     assert check_status_code(response, 400)
     response = client.post(
         "/api/like",
         headers={"Authorization": f"Bearer " + token},
-        json={"like": None},
+        json={"like_status": None},
     )
     assert check_status_code(response, 400)
     sha1 = "0123456789abcdef"
@@ -130,7 +130,7 @@ def test_like(client):
                 UserPicture, {"user": user, "picture": sha1}
             )
         )
-        and userpicture.like == True
+        and userpicture.like_status == True
     )
     response = like(client, token, sha1, False)
     assert (
@@ -140,7 +140,7 @@ def test_like(client):
                 UserPicture, {"user": user, "picture": sha1}
             )
         )
-        and userpicture.like == False
+        and userpicture.like_status == False
     )
     response = like(client, token, sha1, None)
     assert check_status_code(response, 200) and not database.session.get(
@@ -161,40 +161,74 @@ def random(client, args, token=None):
     return client.get("/api/random", query_string=args)
 
 
-def test_random(client):
+def picture(client, args):
+    return client.get("/api/picture", query_string=args)
+
+
+def test_random_picture(client):
     response = random(client, {})
     assert check_status_code(response, 200) and hasattr(response, "json")
     print(type(response.json))
-    count = response.json.get("count", 0)
+    count = response.json.get("count")
     assert type(count) == int and count > 0
     response = random(client, {"width": 1920, "height": 1080})
     assert check_status_code(response, 200) and hasattr(response, "json")
-    newcount = response.json.get("count", 0)
+    newcount = response.json.get("count")
     assert type(newcount) == int and 0 < newcount < count
     count = newcount
     response = random(client, {"width": 1920, "height": 1080, "cat": 1})
     assert check_status_code(response, 200) and hasattr(response, "json")
-    newcount = response.json.get("count", 0)
+    newcount = response.json.get("count")
     assert type(newcount) == int and 0 < newcount < count
     count = newcount
-    sha1 = response.json.get("sha1", "")
+    sha1 = response.json.get("sha1")
     assert type(sha1) == str
     userpass = {"user": "testuser", "pass": "testpass"}
     registration(client, userpass)
     token = loads(login(client, userpass).data)["access_token"]
     like(client, token, sha1, True)
+    response = picture(client, {"sha1": sha1, "width": 1920, "height": 1080})
+    assert check_status_code(response, 200) and hasattr(response, "json")
+    like_count = response.json.get("like_count")
+    dislike_count = response.json.get("dislike_count")
+    assert (
+        type(like_count) == int
+        and like_count == 1
+        and type(dislike_count) == int
+        and dislike_count == 0
+    )
     response = random(client, {"width": 1920, "height": 1080, "cat": 1}, token)
     assert check_status_code(response, 200) and hasattr(response, "json")
-    newcount = response.json.get("count", 0)
+    newcount = response.json.get("count")
     assert type(newcount) == int and newcount == count - 1
     count = newcount
     like(client, token, sha1, False)
+    response = picture(client, {"sha1": sha1, "width": 1920, "height": 1080})
+    assert check_status_code(response, 200) and hasattr(response, "json")
+    like_count = response.json.get("like_count")
+    dislike_count = response.json.get("dislike_count")
+    assert (
+        type(like_count) == int
+        and like_count == 0
+        and type(dislike_count) == int
+        and dislike_count == 1
+    )
     response = random(client, {"width": 1920, "height": 1080, "cat": 1}, token)
     assert check_status_code(response, 200) and hasattr(response, "json")
-    newcount = response.json.get("count", 0)
+    newcount = response.json.get("count")
     assert type(newcount) == int and newcount == count
     like(client, token, sha1, None)
+    response = picture(client, {"sha1": sha1, "width": 1920, "height": 1080})
+    assert check_status_code(response, 200) and hasattr(response, "json")
+    like_count = response.json.get("like_count")
+    dislike_count = response.json.get("dislike_count")
+    assert (
+        type(like_count) == int
+        and like_count == 0
+        and type(dislike_count) == int
+        and dislike_count == 0
+    )
     response = random(client, {"width": 1920, "height": 1080, "cat": 1}, token)
     assert check_status_code(response, 200) and hasattr(response, "json")
-    newcount = response.json.get("count", 0)
+    newcount = response.json.get("count")
     assert type(newcount) == int and newcount == count + 1

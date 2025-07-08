@@ -39,5 +39,5 @@ class UserPicture(database.Model):
     picture = database.Column(
         database.String(40), database.ForeignKey("picture.sha1"), primary_key=True
     )
-    like = database.Column(database.Boolean, nullable=False)
+    like_status = database.Column(database.Boolean, nullable=False)
     __table_args__ = (database.UniqueConstraint("user", "picture"),)

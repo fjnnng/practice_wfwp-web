@@ -114,16 +114,16 @@ def create_server(filepath="source/data/database.json"):
         picturelike = request.get_json()
         if (
             type(picturelike) == dict
-            and (picture := picturelike.get("picture"))
-            and "like" in picturelike
-            and database.session.get(Picture, picture)
+            and (sha1 := picturelike.get("sha1"))
+            and "like_status" in picturelike
+            and database.session.get(Picture, sha1)
         ):
             if userpicture := database.session.get(
-                UserPicture, {"user": user, "picture": picture}
+                UserPicture, {"user": user, "picture": sha1}
             ):
                 database.session.delete(userpicture)
-            if (like := picturelike["like"]) != None:
-                userpicture = UserPicture(user=user, picture=picture, like=like)
+            if (like_status := picturelike["like_status"]) != None:
+                userpicture = UserPicture(user=user, picture=sha1, like_status=like_status)
                 database.session.add(userpicture)
             database.session.commit()
             return "", 200
@@ -192,9 +192,42 @@ def create_server(filepath="source/data/database.json"):
                     "scaling": scaling,
                     "sha1": picture.sha1,
                     "size": picture.size,
-                    "like": query.filter(UserPicture.like == True).count(),
-                    "dislike": query.filter(UserPicture.like == False).count(),
+                    "like_count": query.filter(UserPicture.like_status == True).count(),
+                    "dislike_count": query.filter(UserPicture.like_status == False).count(),
                     "count": count,
+                }
+            ),
+            200,
+        )
+
+    @server.route("/api/picture", methods=["GET"])
+    def picture():
+        args = request.args
+        sha1 = args.get("sha1", default="")
+        width = args.get("width", type=int, default=0)
+        height = args.get("height", type=int, default=0)
+        picture = database.session.get(Picture, sha1)
+        if not picture:
+            return "", 404
+        if width and height:
+            if picture.ratio > width / height:
+                scaling = round(height * picture.ratio)
+            else:
+                scaling = width
+        else:
+            scaling = 0
+        query = database.session.query(UserPicture).filter(UserPicture.picture == sha1)
+        return (
+            jsonify(
+                {
+                    "file": picture.title + "." + picture.ext,
+                    "pad": picture.pad,
+                    "scaling": scaling,
+                    "sha1": sha1,
+                    "size": picture.size,
+                    "like_count": query.filter(UserPicture.like_status == True).count(),
+                    "dislike_count": query.filter(UserPicture.like_status == False).count(),
+                    "count": 1,
                 }
             ),
             200,
